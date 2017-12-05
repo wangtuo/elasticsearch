@@ -20,6 +20,7 @@
 package org.elasticsearch.cluster.routing.allocation.allocator;
 
 import com.google.common.base.Predicate;
+import com.sun.xml.internal.ws.policy.sourcemodel.ModelNode;
 import org.apache.lucene.util.ArrayUtil;
 import org.apache.lucene.util.IntroSorter;
 import org.elasticsearch.cluster.metadata.IndexMetaData;
@@ -37,9 +38,12 @@ import org.elasticsearch.cluster.routing.allocation.decider.Decision.Type;
 import org.elasticsearch.common.component.AbstractComponent;
 import org.elasticsearch.common.inject.Inject;
 import org.elasticsearch.common.logging.ESLogger;
+import org.elasticsearch.common.regex.Regex;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.gateway.PriorityComparator;
 import org.elasticsearch.node.settings.NodeSettingsService;
+import org.joda.time.DateTime;
+import sun.util.resources.ar.CurrencyNames_ar_IQ;
 
 import java.util.*;
 
@@ -686,9 +690,11 @@ public class BalancedShardsAllocator extends AbstractComponent implements Shards
                     float minWeight = Float.POSITIVE_INFINITY;
                     ModelNode minNode = null;
                     Decision decision = null;
+
                     if (throttledNodes.size() < nodes.size()) {
                         /* Don't iterate over an identity hashset here the
                          * iteration order is different for each run and makes testing hard */
+
                         for (ModelNode node : nodes.values()) {
                             if (throttledNodes.contains(node)) {
                                 continue;
@@ -696,6 +702,30 @@ public class BalancedShardsAllocator extends AbstractComponent implements Shards
                             if (!node.containsShard(shard)) {
                                 // simulate weight if we would add shard to node
                                 float currentWeight = weight.weightShardAdded(this, node, shard.index());
+                                // 针对今天以后的index，按照每天去打分。
+                                DateTime curIndexTime = Regex.ExtractDateTimeOfDay(shard.getIndex());
+                                if(logger.isDebugEnabled()) {
+                                    logger.debug("-----------> current index time: [{}] [{}]", curIndexTime,shard);
+                                }
+                                if(curIndexTime!=null && Regex.isAfterZeroTimeOfToday(curIndexTime)) {
+                                    currentWeight = 0;
+                                    String curIndexTimeStr = Regex.ExtractDateString(shard.getIndex());
+                                    RoutingNode routingNode = routingNodes.node(node.getNodeId());
+                                    Iterator<ShardRouting> iterator = routingNode.iterator();
+                                    while(iterator.hasNext()){
+                                        ShardRouting shardRouting = iterator.next();
+                                        String shardIndexTime = Regex.ExtractDateString(shardRouting.getIndex());
+                                        if(shardIndexTime.contentEquals(curIndexTimeStr)){
+                                            currentWeight++;
+                                        }
+                                        if(logger.isDebugEnabled()) {
+                                            logger.debug("----------->  current state: [{}] [{}] [{}] [{}] [{}] [{}]", curIndexTime,currentWeight,curIndexTimeStr,routingNode,shardRouting,shardIndexTime);
+                                        }
+                                    }
+                                }
+                                if(logger.isDebugEnabled()){
+                                    logger.debug("----------->  currentWeight: [{}] [{}] [{}]",currentWeight,shard,node);
+                                }
                                 /*
                                  * Unless the operation is not providing any gains we
                                  * don't check deciders

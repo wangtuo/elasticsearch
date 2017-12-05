@@ -30,6 +30,7 @@ import org.elasticsearch.cluster.routing.ShardRouting;
 import org.elasticsearch.common.Nullable;
 import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.inject.*;
+import org.elasticsearch.common.regex.Regex;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.env.NodeEnvironment;
 import org.elasticsearch.env.ShardLock;
@@ -56,6 +57,7 @@ import org.elasticsearch.indices.IndicesService;
 import org.elasticsearch.indices.InternalIndicesLifecycle;
 import org.elasticsearch.indices.cache.query.IndicesQueryCache;
 import org.elasticsearch.plugins.PluginsService;
+import org.joda.time.DateTime;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -325,14 +327,39 @@ public class IndexService extends AbstractIndexComponent implements IndexCompone
 
                 // Count up how many shards are currently on each data path:
                 Map<Path,Integer> dataPathToShardCount = new HashMap<>();
-                for(IndexShard shard : this) {
-                    Path dataPath = shard.shardPath().getRootStatePath();
-                    Integer curCount = dataPathToShardCount.get(dataPath);
-                    if (curCount == null) {
-                        curCount = 0;
+                DateTime curIndexTime = Regex.ExtractDateTimeOfDay(routing.getIndex());
+                if(curIndexTime!=null && Regex.isAfterZeroTimeOfToday(curIndexTime)){
+                    String curIndexTimeStr = Regex.ExtractDateString(routing.getIndex());
+                    for(IndexService indexService : this.indicesServices){
+                        if(curIndexTimeStr.contentEquals(Regex.ExtractDateString(indexService.index().getName()))){
+                            for(IndexShard shard : indexService) {
+                                Path dataPath = shard.shardPath().getRootStatePath();
+                                Integer curCount = dataPathToShardCount.get(dataPath);
+                                if (curCount == null) {
+                                    curCount = 0;
+                                }
+                                dataPathToShardCount.put(dataPath, curCount+1);
+                            }
+                        }
                     }
-                    dataPathToShardCount.put(dataPath, curCount+1);
+                }else {
+                    for(IndexShard shard : this) {
+                        Path dataPath = shard.shardPath().getRootStatePath();
+                        Integer curCount = dataPathToShardCount.get(dataPath);
+                        if (curCount == null) {
+                            curCount = 0;
+                        }
+                        dataPathToShardCount.put(dataPath, curCount+1);
+                    }
                 }
+//                for(IndexShard shard : this) {
+//                    Path dataPath = shard.shardPath().getRootStatePath();
+//                    Integer curCount = dataPathToShardCount.get(dataPath);
+//                    if (curCount == null) {
+//                        curCount = 0;
+//                    }
+//                    dataPathToShardCount.put(dataPath, curCount+1);
+//                }
                 path = ShardPath.selectNewPathForShard(nodeEnv, shardId, indexSettings, routing.getExpectedShardSize() == ShardRouting.UNAVAILABLE_EXPECTED_SHARD_SIZE ? getAvgShardSizeInBytes() : routing.getExpectedShardSize(),
                                                        dataPathToShardCount);
                 logger.debug("{} creating using a new path [{}]", shardId, path);
@@ -383,6 +410,7 @@ public class IndexService extends AbstractIndexComponent implements IndexCompone
 
             indexShard.updateRoutingEntry(routing, true);
             shards = newMapBuilder(shards).put(shardId.id(), new IndexShardInjectorPair(indexShard, shardInjector)).immutableMap();
+
             success = true;
             return indexShard;
         } catch (IOException e) {

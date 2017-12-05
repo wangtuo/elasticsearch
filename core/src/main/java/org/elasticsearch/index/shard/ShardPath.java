@@ -21,9 +21,11 @@ package org.elasticsearch.index.shard;
 import org.apache.lucene.util.IOUtils;
 import org.elasticsearch.cluster.metadata.IndexMetaData;
 import org.elasticsearch.common.logging.ESLogger;
+import org.elasticsearch.common.regex.Regex;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.env.NodeEnvironment;
 import org.elasticsearch.env.ShardLock;
+import org.joda.time.DateTime;
 
 import java.io.IOException;
 import java.nio.file.FileStore;
@@ -191,7 +193,7 @@ public final class ShardPath {
                 curBytes = 0L;
             }
             reservedBytes.put(dataPath, curBytes + estShardSizeInBytes);
-        }       
+        }
 
         return reservedBytes;
     }
@@ -222,22 +224,36 @@ public final class ShardPath {
             // TODO - do we need something more extensible? Yet, this does the job for now...
             final NodeEnvironment.NodePath[] paths = env.nodePaths();
             NodeEnvironment.NodePath bestPath = null;
-            long maxUsableBytes = Long.MIN_VALUE;
-            for (NodeEnvironment.NodePath nodePath : paths) {
-                FileStore fileStore = nodePath.fileStore;
-                long usableBytes = fileStore.getUsableSpace();
 
-                // Deduct estimated reserved bytes from usable space:
-                Integer count = dataPathToShardCount.get(nodePath.path);
-                if (count != null) {
-                    usableBytes -= estShardSizeInBytes * count;
+            DateTime curIndexTime = Regex.ExtractDateTimeOfDay(shardId.getIndex());
+            if(curIndexTime!=null && Regex.isAfterZeroTimeOfToday(curIndexTime)) {
+                int minShardCount = Integer.MAX_VALUE;
+                for (NodeEnvironment.NodePath nodePath : paths) {
+                    Integer count = dataPathToShardCount.get(nodePath.path);
+                    if(count == null){
+                        count = 0;
+                    }
+                    if (count < minShardCount) {
+                        bestPath = nodePath;
+                        minShardCount = count;
+                    }
                 }
-                if (usableBytes > maxUsableBytes) {
-                    maxUsableBytes = usableBytes;
-                    bestPath = nodePath;
+            }else{
+                long maxUsableBytes = Long.MIN_VALUE;
+                for (NodeEnvironment.NodePath nodePath : paths) {
+                    FileStore fileStore = nodePath.fileStore;
+                    long usableBytes = fileStore.getUsableSpace();
+                    // Deduct estimated reserved bytes from usable space:
+                    Integer count = dataPathToShardCount.get(nodePath.path);
+                    if (count != null) {
+                        usableBytes -= estShardSizeInBytes * count;
+                    }
+                    if (usableBytes > maxUsableBytes) {
+                        maxUsableBytes = usableBytes;
+                        bestPath = nodePath;
+                    }
                 }
             }
-
             statePath = bestPath.resolve(shardId);
             dataPath = statePath;
         }

@@ -19,9 +19,15 @@
 
 package org.elasticsearch.common.regex;
 
+import org.elasticsearch.cluster.routing.allocation.decider.Decision;
 import org.elasticsearch.common.Strings;
+import org.joda.time.DateTime;
+import org.joda.time.DateTimeZone;
+import org.joda.time.format.DateTimeFormat;
+import org.joda.time.format.DateTimeFormatter;
 
 import java.util.Locale;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -189,5 +195,41 @@ public class Regex {
             sb.append("UNICODE_CHAR_CLASS|");
         }
         return sb.toString();
+    }
+    public static String dateIndexPatternRegix = "^.+-(\\d{4}\\.\\d{1,2}\\.\\d{1,2})$";
+    public static boolean isLogdbIndex(String indexName) {
+        Pattern pattern = Pattern.compile(dateIndexPatternRegix);
+        Matcher matcher = pattern.matcher(indexName);
+        return matcher.find();
+    }
+    public static String ExtractDateString(String indexName) {
+        Pattern pattern = Pattern.compile(dateIndexPatternRegix);
+        Matcher matcher = pattern.matcher(indexName);
+        if(matcher.find() && matcher.groupCount() == 1){
+            return matcher.group(1);
+        }
+        return "";
+    }
+    public static DateTime ExtractDateTimeOfDay(String indexName) {
+        Pattern pattern = Pattern.compile(dateIndexPatternRegix);
+        Matcher matcher = pattern.matcher(indexName);
+        if(matcher.find() && matcher.groupCount() == 1){
+            String dateStr = matcher.group(1);
+            DateTimeFormatter fmt = DateTimeFormat.forPattern("yyyy.MM.dd");
+            try {
+                return fmt.parseDateTime(dateStr);
+            } catch (Exception e){
+                return null;
+            }
+        }
+        return null;
+    }
+    public static boolean isAfterZeroTimeOfToday(DateTime indexDate) {
+        DateTime curTime = new DateTime(DateTimeZone.forOffsetHours(8));
+        DateTime starTimeOfDay = new DateTime(curTime.getYear(), curTime.getMonthOfYear(), curTime.getDayOfMonth(), 0, 0, 0, 0, DateTimeZone.forOffsetHours(8));
+        if (indexDate.isEqual(starTimeOfDay) || indexDate.isAfter(starTimeOfDay)){
+            return true;
+        }
+        return false;
     }
 }

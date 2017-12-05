@@ -534,6 +534,9 @@ public class RoutingNodes implements Iterable<RoutingNode> {
             ignored = new ArrayList<>();
         }
 
+        public RoutingNodes GetRoutingNodes(){
+            return this.nodes;
+        }
         public void add(ShardRouting shardRouting) {
             if(shardRouting.primary()) {
                 primaries++;
